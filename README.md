@@ -31,6 +31,7 @@ fn test_pack_unpack_symmetry() {
         let files1 = list_dir_all(directory.path()).unwrap();
         let files2 = list_dir_all("/tmp/unpack-dir").unwrap();
         assert_eq!(files1, files2);
+        Ok(())
     });
 }
 ```
