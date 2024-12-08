@@ -1,0 +1,21 @@
+[package]
+name = "random-dir"
+version = "0.2.3"
+edition = "2021"
+license = "MIT"
+homepage = "https://github.com/igankevich/random-dir"
+repository = "https://github.com/igankevich/random-dir"
+documentation = "https://docs.rs/random-dir"
+readme = "README.md"
+description = "Create directories and files with random contents in tests."
+keywords = ["random", "directory", "test"]
+categories = ["development-tools", "filesystem"]
+include = ["**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
+
+[dependencies]
+arbitrary = { version = "1.4.1", features = ["derive", "derive_arbitrary"] }
+arbtest = "0.3.1"
+libc = "0.2.162"
+normalize-path = "0.2.1"
+tempfile = "3.14.0"
+walkdir = "2.5.0"
