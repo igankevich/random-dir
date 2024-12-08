@@ -33,6 +33,7 @@ use crate::mknod;
 use crate::path_to_c_string;
 use crate::set_file_modified_time;
 
+/// [`Dir`] configuration.
 pub struct DirBuilder {
     printable_names: bool,
     file_types: Vec<FileType>,
@@ -75,6 +76,7 @@ impl DirBuilder {
         self
     }
 
+    /// Create a temprary directory with random contents.
     pub fn create(self, u: &mut Unstructured<'_>) -> arbitrary::Result<Dir> {
         use FileType::*;
         let dir = TempDir::new().unwrap();
@@ -202,10 +204,12 @@ pub struct Dir {
 }
 
 impl Dir {
+    /// Get directory path.
     pub fn path(&self) -> &Path {
         self.dir.path()
     }
 
+    /// Transform into inner representation.
     pub fn into_inner(self) -> TempDir {
         self.dir
     }
@@ -217,18 +221,28 @@ impl<'a> Arbitrary<'a> for Dir {
     }
 }
 
+/// File type.
 #[derive(Arbitrary, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum FileType {
+    /// Regular file.
     Regular,
+    /// A directory.
     Directory,
+    /// Named pipe.
     Fifo,
+    /// UNIX socket.
     Socket,
+    /// Block device.
     BlockDevice,
+    /// Character device.
     CharDevice,
+    /// Symbolic link.
     Symlink,
+    /// Hard link.
     HardLink,
 }
 
+/// All file types supported by the platform.
 pub const ALL_FILE_TYPES: [FileType; 8] = {
     use FileType::*;
     [
@@ -243,6 +257,13 @@ pub const ALL_FILE_TYPES: [FileType; 8] = {
     ]
 };
 
+/// Recursively list specified directory.
+///
+/// This function always returns the same entries in the same order for the same directory.
+/// It also remaps inodes to make listings of the two directories conataining the same files
+/// consistent.
+///
+/// The intended usage is to compare the contents (files and metadata) of the two directories.
 pub fn list_dir_all<P: AsRef<Path>>(dir: P) -> Result<Vec<FileInfo>, Error> {
     let dir = dir.as_ref();
     let mut files = Vec::new();
@@ -289,23 +310,37 @@ pub fn list_dir_all<P: AsRef<Path>>(dir: P) -> Result<Vec<FileInfo>, Error> {
     Ok(files)
 }
 
+/// File's path, metadata and contents.
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct FileInfo {
+    /// Path.
     pub path: PathBuf,
+    /// Metadata.
     pub metadata: Metadata,
+    /// File contents.
     pub contents: Vec<u8>,
 }
 
+/// File's metadata.
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Metadata {
+    /// Containing device number.
     pub dev: u64,
+    /// Inode.
     pub ino: u64,
+    /// File mode.
     pub mode: u32,
+    /// Owner's user id.
     pub uid: u32,
+    /// Owner's group id.
     pub gid: u32,
+    /// No. of hard links.
     pub nlink: u32,
+    /// Device number of the file itself.
     pub rdev: u64,
+    /// Last modification time.
     pub mtime: u64,
+    /// File size in bytes.
     pub file_size: u64,
 }
 

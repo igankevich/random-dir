@@ -1,6 +1,6 @@
 [package]
 name = "random-dir"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 license = "MIT"
 homepage = "https://github.com/igankevich/random-dir"
@@ -19,3 +19,6 @@ libc = "0.2.162"
 normalize-path = "0.2.1"
 tempfile = "3.14.0"
 walkdir = "2.5.0"
+
+[lints.rust]
+missing_docs = "warn"
