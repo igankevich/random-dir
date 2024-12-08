@@ -4,9 +4,6 @@
 [![Docs](https://docs.rs/random-dir/badge.svg)](https://docs.rs/random-dir)
 [![dependency status](https://deps.rs/repo/github/igankevich/random-dir/status.svg)](https://deps.rs/repo/github/igankevich/random-dir)
 
-CPIO archive reader/writer library. Supports _New ASCII_, _New CRC_, _Old character_, and _New binary_ formats.
-
-
 ## Introduction
 
 `random-dir` is a library that helps create directories with random contents.
