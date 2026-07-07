@@ -414,7 +414,6 @@ impl TryFrom<&std::fs::Metadata> for Metadata {
     }
 }
 
-#[allow(unused_unsafe)]
 #[cfg(target_os = "linux")]
 fn arbitrary_char_dev() -> libc::dev_t {
     // /dev/null
@@ -424,5 +423,5 @@ fn arbitrary_char_dev() -> libc::dev_t {
 #[cfg(target_os = "macos")]
 fn arbitrary_char_dev() -> libc::dev_t {
     // /dev/null
-    unsafe { libc::makedev(3, 2) }
+    libc::makedev(3, 2)
 }
