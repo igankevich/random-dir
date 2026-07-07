@@ -86,8 +86,14 @@ impl DirBuilder {
             Ok(path)
         };
         #[cfg(not(unix))]
-        let random_path =
-            |u: &mut Unstructured<'_>| -> arbitrary::Result<PathBuf> { Ok(u.arbitrary()?) };
+        let random_path = |u: &mut Unstructured<'_>| -> arbitrary::Result<PathBuf> {
+            let len: usize = u.int_in_range(1..=10)?;
+            let mut string = String::with_capacity(len);
+            for _ in 0..len {
+                string.push(u.int_in_range(b'a'..=b'z')? as char);
+            }
+            Ok(string.into())
+        };
         let dir = TempDir::new().unwrap();
         let mut files = Vec::new();
         let num_files: usize = u.int_in_range(0..=10)?;
@@ -152,7 +158,6 @@ impl DirBuilder {
                         .recursive(true)
                         .create(&path)
                         .unwrap();
-                    File::open(&path).unwrap().set_modified(t).unwrap();
                 }
                 #[cfg(unix)]
                 Fifo => {
