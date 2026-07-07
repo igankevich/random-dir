@@ -4,14 +4,14 @@ on: [push]
 jobs:
   ubuntu:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/igankevich/random-dir-ci-2:latest
     env:
       TZ: Europe/Berlin
       RUST_BACKTRACE: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4.1.4
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Lint
         run: ./ci/lint.sh
       - name: Test
@@ -24,13 +24,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4.1.4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
       - run: cargo test --workspace --all-targets
   windows:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4.1.4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Test
         run: cargo test --workspace --all-targets
