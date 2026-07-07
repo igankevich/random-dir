@@ -1,19 +1,10 @@
 use std::collections::HashMap;
-use std::ffi::CString;
-use std::ffi::OsString;
 use std::fs::create_dir_all;
 use std::fs::hard_link;
 use std::fs::read_link;
 use std::fs::File;
-use std::fs::Permissions;
 use std::io::Error;
 use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::ffi::OsStringExt;
-use std::os::unix::fs::symlink;
-use std::os::unix::fs::DirBuilderExt;
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixDatagram;
 use std::path::Path;
 use std::path::PathBuf;
 use std::path::MAIN_SEPARATOR_STR;
@@ -22,16 +13,9 @@ use std::time::SystemTime;
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
-use libc::dev_t;
-use libc::makedev;
 use normalize_path::NormalizePath;
 use tempfile::TempDir;
 use walkdir::WalkDir;
-
-use crate::mkfifo;
-use crate::mknod;
-use crate::path_to_c_string;
-use crate::set_file_modified_time;
 
 /// [`Dir`] configuration.
 pub struct DirBuilder {
@@ -43,16 +27,21 @@ impl DirBuilder {
     /// Create new directory builder with default parameters.
     pub fn new() -> Self {
         Self {
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", windows)))]
             printable_names: false,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             printable_names: true,
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(not(any(target_os = "macos", windows)))]
             file_types: ALL_FILE_TYPES.into(),
             #[cfg(target_os = "macos")]
             file_types: {
                 use FileType::*;
                 [Regular, Directory, Fifo, Socket, Symlink, HardLink].into()
+            },
+            #[cfg(target_os = "windows")]
+            file_types: {
+                use FileType::*;
+                [Regular, Directory, Symlink, HardLink].into()
             },
         }
     }
@@ -79,26 +68,35 @@ impl DirBuilder {
     /// Create a temprary directory with random contents.
     pub fn create(self, u: &mut Unstructured<'_>) -> arbitrary::Result<Dir> {
         use FileType::*;
-        let dir = TempDir::new().unwrap();
-        let mut files = Vec::new();
-        let num_files: usize = u.int_in_range(0..=10)?;
-        for _ in 0..num_files {
-            let path: CString = if self.printable_names {
+        #[cfg(unix)]
+        let random_path = |u: &mut Unstructured<'_>| -> arbitrary::Result<PathBuf> {
+            let path = if self.printable_names {
                 let len: usize = u.int_in_range(1..=10)?;
                 let mut string = String::with_capacity(len);
                 for _ in 0..len {
                     string.push(u.int_in_range(b'a'..=b'z')? as char);
                 }
-                CString::new(string).unwrap()
+                std::ffi::CString::new(string).unwrap()
             } else {
                 u.arbitrary()?
             };
-            if path.as_bytes().is_empty() {
+            use std::os::unix::ffi::OsStringExt;
+            let path = std::ffi::OsString::from_vec(path.into_bytes());
+            let path: PathBuf = path.into();
+            Ok(path)
+        };
+        #[cfg(not(unix))]
+        let random_path =
+            |u: &mut Unstructured<'_>| -> arbitrary::Result<PathBuf> { Ok(u.arbitrary()?) };
+        let dir = TempDir::new().unwrap();
+        let mut files = Vec::new();
+        let num_files: usize = u.int_in_range(0..=10)?;
+        for _ in 0..num_files {
+            let path = random_path(u)?;
+            if path.as_os_str().is_empty() {
                 // do not allow empty paths
                 continue;
             }
-            let path: OsString = OsString::from_vec(path.into_bytes());
-            let path: PathBuf = path.into();
             let path = match path.strip_prefix(MAIN_SEPARATOR_STR) {
                 Ok(path) => path,
                 Err(_) => path.as_path(),
@@ -124,54 +122,83 @@ impl DirBuilder {
             };
             match kind {
                 Regular => {
-                    let mode = u.int_in_range(0..=0o777)? | 0o400;
                     let contents: Vec<u8> = u.arbitrary()?;
                     let mut file = File::create(&path).unwrap();
                     file.write_all(&contents).unwrap();
-                    file.set_permissions(Permissions::from_mode(mode)).unwrap();
+                    #[cfg(unix)]
+                    {
+                        use std::fs::Permissions;
+                        use std::os::unix::fs::PermissionsExt;
+                        let mode = u.int_in_range(0..=0o777)? | 0o400;
+                        file.set_permissions(Permissions::from_mode(mode)).unwrap();
+                    }
                     file.set_modified(t).unwrap();
                 }
+                #[cfg(unix)]
                 Directory => {
+                    use std::os::unix::fs::DirBuilderExt;
                     let mode = u.int_in_range(0..=0o777)? | 0o500;
                     std::fs::DirBuilder::new()
                         .mode(mode)
                         .recursive(true)
                         .create(&path)
                         .unwrap();
-                    let path = path_to_c_string(path.clone()).unwrap();
-                    set_file_modified_time(&path, t).unwrap();
+                    let path = crate::path_to_c_string(path.clone()).unwrap();
+                    crate::set_file_modified_time(&path, t).unwrap();
                 }
+                #[cfg(not(unix))]
+                Directory => {
+                    std::fs::DirBuilder::new()
+                        .recursive(true)
+                        .create(&path)
+                        .unwrap();
+                    File::open(&path).unwrap().set_modified(t).unwrap();
+                }
+                #[cfg(unix)]
                 Fifo => {
                     let mode = u.int_in_range(0..=0o777)? | 0o400;
-                    let path = path_to_c_string(path.clone()).unwrap();
-                    mkfifo(&path, mode).unwrap();
-                    set_file_modified_time(&path, t).unwrap();
+                    let path = crate::path_to_c_string(path.clone()).unwrap();
+                    crate::mkfifo(&path, mode).unwrap();
+                    crate::set_file_modified_time(&path, t).unwrap();
                 }
+                #[cfg(unix)]
                 Socket => {
+                    use std::os::unix::net::UnixDatagram;
                     UnixDatagram::bind(&path).unwrap();
-                    let path = path_to_c_string(path.clone()).unwrap();
-                    set_file_modified_time(&path, t).unwrap();
+                    let path = crate::path_to_c_string(path.clone()).unwrap();
+                    crate::set_file_modified_time(&path, t).unwrap();
                 }
-                #[allow(unused_unsafe)]
+                #[cfg(unix)]
                 BlockDevice => {
                     // dev loop
-                    let dev = unsafe { makedev(7, 0) };
+                    let dev = libc::makedev(7, 0);
                     let mode = u.int_in_range(0o400..=0o777)?;
-                    let path = path_to_c_string(path.clone()).unwrap();
-                    mknod(&path, mode, dev).unwrap();
-                    set_file_modified_time(&path, t).unwrap();
+                    let path = crate::path_to_c_string(path.clone()).unwrap();
+                    crate::mknod(&path, mode, dev).unwrap();
+                    crate::set_file_modified_time(&path, t).unwrap();
                 }
+                #[cfg(unix)]
                 CharDevice => {
                     let dev = arbitrary_char_dev();
                     let mode = u.int_in_range(0o400..=0o777)?;
-                    let path = path_to_c_string(path.clone()).unwrap();
-                    mknod(&path, mode, dev).unwrap();
-                    set_file_modified_time(&path, t).unwrap();
+                    let path = crate::path_to_c_string(path.clone()).unwrap();
+                    crate::mknod(&path, mode, dev).unwrap();
+                    crate::set_file_modified_time(&path, t).unwrap();
                 }
+                #[cfg(unix)]
                 Symlink => {
+                    use std::os::unix::fs::symlink;
                     let original = u.choose(&files[..]).unwrap();
                     symlink(original, &path).unwrap();
                 }
+                #[cfg(windows)]
+                Symlink => {
+                    use std::os::windows::fs::symlink_file;
+                    let original = u.choose(&files[..]).unwrap();
+                    symlink_file(original, &path).unwrap();
+                }
+                #[cfg(all(not(unix), not(windows)))]
+                Symlink => panic!("Unsupported file type: {kind:?}"),
                 HardLink => {
                     let original = u.choose(&files[..]).unwrap();
                     assert!(
@@ -180,6 +207,10 @@ impl DirBuilder {
                         original.display(),
                         path.display()
                     );
+                }
+                #[cfg(not(unix))]
+                Socket | Fifo | CharDevice | BlockDevice => {
+                    panic!("Unsupported file type: {kind:?}")
                 }
             }
             if kind != FileType::Directory {
@@ -277,7 +308,7 @@ pub fn list_dir_all<P: AsRef<Path>>(dir: P) -> Result<Vec<FileInfo>, Error> {
             std::fs::read(entry.path()).unwrap()
         } else if metadata.is_symlink() {
             let target = read_link(entry.path()).unwrap();
-            target.as_os_str().as_bytes().to_vec()
+            target.as_os_str().as_encoded_bytes().to_vec()
         } else {
             Vec::new()
         };
@@ -346,6 +377,8 @@ pub struct Metadata {
 
 impl TryFrom<&std::fs::Metadata> for Metadata {
     type Error = Error;
+
+    #[cfg(unix)]
     fn try_from(other: &std::fs::Metadata) -> Result<Self, Error> {
         use std::os::unix::fs::MetadataExt;
         Ok(Self {
@@ -360,17 +393,36 @@ impl TryFrom<&std::fs::Metadata> for Metadata {
             file_size: other.size(),
         })
     }
+
+    #[cfg(not(unix))]
+    fn try_from(other: &std::fs::Metadata) -> Result<Self, Error> {
+        Ok(Self {
+            dev: 0,
+            ino: 0,
+            mode: 0,
+            uid: 0,
+            gid: 0,
+            nlink: 1,
+            rdev: 0,
+            mtime: other
+                .modified()?
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_secs(),
+            file_size: other.len(),
+        })
+    }
 }
 
 #[allow(unused_unsafe)]
 #[cfg(target_os = "linux")]
-fn arbitrary_char_dev() -> dev_t {
+fn arbitrary_char_dev() -> libc::dev_t {
     // /dev/null
-    makedev(1, 3)
+    libc::makedev(1, 3)
 }
 
 #[cfg(target_os = "macos")]
-fn arbitrary_char_dev() -> dev_t {
+fn arbitrary_char_dev() -> libc::dev_t {
     // /dev/null
-    unsafe { makedev(3, 2) }
+    unsafe { libc::makedev(3, 2) }
 }
