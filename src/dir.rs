@@ -89,12 +89,18 @@ impl DirBuilder {
         let random_path = |u: &mut Unstructured<'_>| -> arbitrary::Result<PathBuf> {
             let len: usize = u.int_in_range(1..=10)?;
             let mut string = String::with_capacity(len);
-            for _ in 0..len {
-                string.push(u.int_in_range(b'a'..=b'z')? as char);
+            loop {
+                string.clear();
+                for _ in 0..len {
+                    string.push(u.int_in_range(b'a'..=b'z')? as char);
+                }
+                if !is_reserved_file_name(&string) {
+                    break;
+                }
             }
             Ok(string.into())
         };
-        let dir = TempDir::new().unwrap();
+        let dir = tempfile::Builder::new().rand_bytes(32).tempdir().unwrap();
         let mut files = Vec::new();
         let num_files: usize = u.int_in_range(0..=10)?;
         for _ in 0..num_files {
@@ -430,3 +436,23 @@ fn arbitrary_char_dev() -> libc::dev_t {
     // /dev/null
     libc::makedev(3, 2)
 }
+
+#[cfg(windows)]
+fn is_reserved_file_name(file_name: &str) -> bool {
+    let file_name = file_name.to_lowercase();
+    for prefix in RESERVED_FILE_PREFIXES.iter() {
+        if file_name.starts_with(prefix) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn is_reserved_file_name(_file_name: &str) -> bool {
+    false
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+#[cfg(windows)]
+const RESERVED_FILE_PREFIXES: &[&str] = &["con", "prn", "aux", "nul", "com", "lpt"];
