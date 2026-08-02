@@ -89,12 +89,23 @@ impl DirBuilder {
         let random_path = |u: &mut Unstructured<'_>| -> arbitrary::Result<PathBuf> {
             let len: usize = u.int_in_range(1..=10)?;
             let mut string = String::with_capacity(len);
+            #[cfg(windows)]
+            loop {
+                for _ in 0..len {
+                    string.push(u.int_in_range(b'a'..=b'z')? as char);
+                }
+                if !RESERVED_FILE_NAMES.contains(&string.as_str()) {
+                    break;
+                }
+                string.clear();
+            }
+            #[cfg(not(windows))]
             for _ in 0..len {
                 string.push(u.int_in_range(b'a'..=b'z')? as char);
             }
             Ok(string.into())
         };
-        let dir = TempDir::new().unwrap();
+        let dir = tempfile::Builder::new().rand_bytes(32).tempdir().unwrap();
         let mut files = Vec::new();
         let num_files: usize = u.int_in_range(0..=10)?;
         for _ in 0..num_files {
@@ -430,3 +441,9 @@ fn arbitrary_char_dev() -> libc::dev_t {
     // /dev/null
     libc::makedev(3, 2)
 }
+
+#[cfg(windows)]
+const RESERVED_FILE_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "COM0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT0",
+];
