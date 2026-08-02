@@ -90,14 +90,17 @@ impl DirBuilder {
             let len: usize = u.int_in_range(1..=10)?;
             let mut string = String::with_capacity(len);
             #[cfg(windows)]
-            loop {
+            'outer: loop {
+                string.clear();
                 for _ in 0..len {
                     string.push(u.int_in_range(b'a'..=b'z')? as char);
                 }
-                if !RESERVED_FILE_NAMES.contains(&string.as_str()) {
-                    break;
+                let string_lc = string.lower_case();
+                for prefix in RESERVED_FILE_PREFIXES.iter() {
+                    if string_lc.starts_with(prefix) {
+                        continue 'outer;
+                    }
                 }
-                string.clear();
             }
             #[cfg(not(windows))]
             for _ in 0..len {
@@ -442,8 +445,6 @@ fn arbitrary_char_dev() -> libc::dev_t {
     libc::makedev(3, 2)
 }
 
+// https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
 #[cfg(windows)]
-const RESERVED_FILE_NAMES: &[&str] = &[
-    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
-    "COM9", "COM0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT0",
-];
+const RESERVED_FILE_PREFIXES: &[&str] = &["con", "prn", "aux", "nul", "com", "lpt"];
